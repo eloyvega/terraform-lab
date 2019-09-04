@@ -169,7 +169,7 @@ resource "aws_route_table_association" "public-rt-2" {
 }
 ```
 
-- *RETO:* Crea la tabla de ruteo privada y las dos asociaciones de subnets privadas
+- **RETO:** Crea la tabla de ruteo privada y las dos asociaciones de subnets privadas
 
 - Ejecuta el siguiente comando para verificar que tus archivos de configuración sean correctos y ver el plan de ejecución:
 
@@ -208,7 +208,7 @@ variable "server_port" {
 3. Launch Configuration
 4. Auto Scaling Group
 
-- El siguiente bloque crea el Security Group que será vinculado con las instancias EC2, donde se servira el sitio web desde el puerto especificado en la variable 
+- El siguiente bloque crea el Security Group que será vinculado con las instancias EC2, donde se alojará el sitio web desde el puerto especificado en la variable `server_port`
 
 ```terraform
 resource "aws_security_group" "instance" {
@@ -219,8 +219,14 @@ resource "aws_security_group" "instance" {
     from_port       = var.server_port
     to_port         = var.server_port
     protocol        = "tcp"
-    cidr_blocks     = ["0.0.0.0/0"]
-    security_groups = [aws_security_group.elb.id]
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   lifecycle {
@@ -316,7 +322,7 @@ resource "aws_autoscaling_group" "web_asg" {
 }
 ```
 
-- **RETO:** Investiga el uso de [aws_autoscaling_schedule](https://www.terraform.io/docs/providers/aws/r/autoscaling_schedule.html) en Terraform y crea un horario para prender los servidores a las 9:00 horas y apagarlos a las 20:00 horas
+- **RETO:** Investiga el uso de [aws_autoscaling_schedule](https://www.terraform.io/docs/providers/aws/r/autoscaling_schedule.html) en Terraform y crea un horario para prender los servidores a las 9:00 horas y apagarlos a las 20:00 horas.
 
 - Ejecuta el siguiente comando para verificar que tus archivos de configuración sean correctos y ver el plan de ejecución:
 
@@ -338,4 +344,65 @@ Contesta `yes` cuando te pida confirmación
 
 ### 04. Base de Datos
 
-- **RETO:** Crea los recursos necesarios en el arhivo `database.tf` para levantar una base de datos [MySQL en RDS](https://www.terraform.io/docs/providers/aws/r/db_instance.html), con su Security Group y [Subnet Group](https://www.terraform.io/docs/providers/aws/r/db_subnet_group.html) en las subnets privadas que creamos en el archivo `vpc.tf`
+- **RETO:** Crea los recursos necesarios en el arhivo `database.tf` para levantar una base de datos [MySQL en RDS](https://www.terraform.io/docs/providers/aws/r/db_instance.html), con su Security Group (puerto 3306 abierto hacia el SG instance) y [Subnet Group](https://www.terraform.io/docs/providers/aws/r/db_subnet_group.html) en las subnets privadas que creamos en el archivo `vpc.tf`
+
+### 05. Conectando el web server a la base de datos
+
+- Crea el archivo `user_data.sh` y agrega lo siguiente:
+
+```sh
+#!/bin/bash
+apt-get update -y
+apt-get install -y php apache2 libapache2-mod-php php-mysql
+rm -f /var/www/html/index.html
+cat > /var/www/html/index.php <<EOF
+<?php
+\$servername = "terraform-20190904153823599400000001.cvfqrf7wneu8.us-east-1.rds.amazonaws.com";
+\$username = "admin";
+\$password = "P455w0rd";
+\$conn = new mysqli(\$servername, \$username, \$password);
+if (\$conn->connect_error) {
+die("Connection failed: " . \$conn->connect_error);
+} 
+echo "Connected successfully";
+?>
+EOF
+systemctl restart apache2
+```
+
+- Modifica el archivo `web_server.tf` para agregar el siguiente bloque que lee el archivo e inserta el valor de la dirección de la base de datos
+
+```terraform
+data "template_file" "user_data" {
+  template = file("user_data.sh")
+
+  vars = {
+    database_address = aws_db_instance.database.address
+  }
+}
+```
+
+- Modifica el recurso `aws_launch_configuration` con el nuevo `user_data`
+
+```terraform
+resource "aws_launch_configuration" "web_lc" {
+  image_id        = var.ami_id
+  instance_type   = "t2.micro"
+  security_groups = [aws_security_group.instance.id]
+
+  user_data = data.template_file.user_data.rendered
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+```
+
+- Planea y ejecuta los script de Terraform con:
+
+```
+terraform plan
+terraform apply
+```
+
+- Visita la URL del Load Balancer y verifica que la conexión a la base de datos es exitosa.
