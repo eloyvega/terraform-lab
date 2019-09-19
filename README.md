@@ -357,7 +357,7 @@ apt-get install -y php apache2 libapache2-mod-php php-mysql
 rm -f /var/www/html/index.html
 cat > /var/www/html/index.php <<EOF
 <?php
-\$servername = "terraform-20190904153823599400000001.cvfqrf7wneu8.us-east-1.rds.amazonaws.com";
+\$servername = "${database_address}";
 \$username = "admin";
 \$password = "P455w0rd";
 \$conn = new mysqli(\$servername, \$username, \$password);
